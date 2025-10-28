@@ -7,7 +7,8 @@ from pysnmp.hlapi.asyncio import *
 
 # Загрузка констант из .env
 SCAN_MODE = os.getenv('SCAN_MODE', 'light').lower()  # 'light' или 'full'
-IP_ADDRESS = os.getenv('IP', '10.45.154.11')
+IP_ADDRESS = os.getenv('IP', '10.179.72.97')
+SKIP_DUPLICATES = os.getenv('SKIP_DUPLICATES', 'true').lower() == 'false'  # Пропуск повторяющихся 
 
 # Создаем папку для логов
 LOG_DIR = "logs_snmp"
@@ -55,6 +56,7 @@ class DualLogger:
                     f.write(f"SNMP Monitor Log - {current_date} ({mode_name} Mode)\n")
                     f.write(f"Scan Mode: {SCAN_MODE}\n")
                     f.write(f"IP Address: {IP_ADDRESS}\n")
+                    f.write(f"Skip Duplicates: {SKIP_DUPLICATES}\n")
                     f.write("=" * 80 + "\n\n")
     
     def check_and_update_log_files(self):
@@ -269,6 +271,7 @@ async def main():
     
     print(f"Режим сканирования: {SCAN_MODE}")
     print(f"IP адрес: {ip}")
+    print(f"Пропуск одинаковых ответов: {'ВКЛЮЧЕН' if SKIP_DUPLICATES else 'ВЫКЛЮЧЕН'}")
     print(f"Логи сохраняются в папку: {LOG_DIR}")
     print(f"Созданы два лог-файла: light и full режимы")
     
@@ -282,22 +285,29 @@ async def main():
     ip_message = f"[{get_current_datetime()}] IP адрес: {ip}"
     logger.write_both_logs(ip_message, ip_message)
     
+    skip_message = f"[{get_current_datetime()}] Пропуск одинаковых ответов: {'ВКЛЮЧЕН' if SKIP_DUPLICATES else 'ВЫКЛЮЧЕН'}"
+    logger.write_both_logs(skip_message, skip_message)
+    
     while True:
         result = await get_ug405(ip)
         
         if result:
-            # Простая проверка: если текущие данные такие же как предыдущие - пропускаем
-            if result == previous_raw_data:
-                # Данные повторяются - не выводим
+            # Проверяем, нужно ли пропускать одинаковые ответы
+            if SKIP_DUPLICATES and result == previous_raw_data:
+                # Данные повторяются и пропуск включен - не выводим
                 current_time = get_current_time_with_ms()
-                print(f"[{current_time}] 🟡 Данные не изменились, пропускаем вывод")
+                # print(f"[{current_time}] 🟡 Данные не изменились, пропускаем вывод")
+                pass  # Полностью пропускаем вывод
             else:
-                # Данные новые - выводим как обычно
+                # Данные новые или пропуск выключен - выводим как обычно
                 current_time = get_current_time_with_ms()
                 current_datetime = get_current_datetime()
                 
-                terminal_message = f"[{current_time}] Raw data: '{result}'"
-                log_message = f"[{current_datetime}] Raw data: '{result}'"
+                # Добавляем отметку о дубликате, если это повторяющиеся данные при выключенном пропуске
+                duplicate_marker = "" if not SKIP_DUPLICATES and result == previous_raw_data else ""
+                
+                terminal_message = f"[{current_time}] Raw data: '{result}'{duplicate_marker}"
+                log_message = f"[{current_datetime}] Raw data: '{result}'{duplicate_marker}"
                 
                 print(terminal_message)
                 # Сырые данные пишем в оба лога
